@@ -1,6 +1,6 @@
 package com.example.smaran.api
 
-import com.example.smaran.Constants
+import com.example.smaran.api.Constants
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
@@ -14,8 +14,6 @@ import java.util.concurrent.TimeUnit
 
 data class SaveMemoryRequest(
     val text: String,
-    val durationSeconds: Int,
-    val recordedAt: String,
 )
 
 data class SaveMemoryResponse(
@@ -23,11 +21,17 @@ data class SaveMemoryResponse(
     val status: String,
 )
 
+data class AskRequest(val question: String)
+data class AskResponse(val answer: String)
+
 // ─── Interface ────────────────────────────────────────────────────────────────
 
 interface SmaranApiService {
     @POST(Constants.ENDPOINT_MEMORY)
     suspend fun saveMemory(@Body request: SaveMemoryRequest): Response<SaveMemoryResponse>
+
+    @POST(Constants.ENDPOINT_QUERY)
+    suspend fun askMemory(@Body request: AskRequest): Response<AskResponse>
 }
 
 // ─── Client singleton ─────────────────────────────────────────────────────────

@@ -44,7 +44,7 @@ class ReviewViewModel : ViewModel() {
     val events: SharedFlow<ReviewEvent> = _events.asSharedFlow()
 
     @RequiresApi(Build.VERSION_CODES.O)
-    fun sendMemory(text: String, durationSeconds: Int) {
+    fun sendMemory(text: String ){
         if (_uiState.value is ReviewUiState.Sending) return
         if (text.isBlank()) {
             _uiState.value = ReviewUiState.Error("Text is empty — nothing to send")
@@ -54,9 +54,7 @@ class ReviewViewModel : ViewModel() {
         _uiState.value = ReviewUiState.Sending
 
         viewModelScope.launch {
-            val recordedAt = Instant.now().toString()
-
-            when (val result = repository.saveMemory(text, durationSeconds, recordedAt)) {
+            when (val result = repository.saveMemory(text)) {
                 is Result.Success -> {
                     _uiState.value = ReviewUiState.Sent
                     delay(1200)

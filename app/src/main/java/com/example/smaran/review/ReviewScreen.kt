@@ -237,7 +237,7 @@ fun ReviewScreen(
         val isSent    = uiState is ReviewUiState.Sent
 
         Button(
-            onClick  = { vm.sendMemory(editedText, durationSeconds) },
+            onClick  = { vm.sendMemory(editedText) },
             enabled  = !isSending && !isSent,
             modifier = Modifier
                 .fillMaxWidth()

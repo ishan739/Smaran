@@ -11,11 +11,9 @@ class MemoryRepository {
 
     suspend fun saveMemory(
         text: String,
-        durationSeconds: Int,
-        recordedAt: String,
     ): Result<SaveMemoryResponse> = try {
         val response = api.saveMemory(
-            SaveMemoryRequest(text, durationSeconds, recordedAt)
+            SaveMemoryRequest(text)
         )
         if (response.isSuccessful && response.body() != null) {
             Result.Success(response.body()!!)

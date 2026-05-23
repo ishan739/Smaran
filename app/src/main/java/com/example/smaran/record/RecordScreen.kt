@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.smaran.NetworkStatus
 import com.example.smaran.ui.theme.SmaranColors
 import com.example.smaran.ui.theme.SmaranType
 import kotlinx.coroutines.delay
@@ -35,7 +36,9 @@ fun RecordScreen(
     onTranscriptionReady: (text: String, duration: Int) -> Unit,
     vm: RecordViewModel = viewModel()
 ) {
-    val uiState by vm.uiState.collectAsState()
+    val uiState       by vm.uiState.collectAsState()
+    val partialText   by vm.partialText.collectAsState()
+    val networkStatus by vm.networkStatus.collectAsState()
 
     // ── Collect one-time nav events ───────────────────────────────────────────
     LaunchedEffect(Unit) {
@@ -52,7 +55,6 @@ fun RecordScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> if (granted) vm.startRecording() }
-
 
     // ── Timer ─────────────────────────────────────────────────────────────────
     var seconds by remember { mutableIntStateOf(0) }
@@ -75,7 +77,7 @@ fun RecordScreen(
         initialValue = 1f,
         targetValue  = 1.5f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = EaseOut),
+            animation  = tween(1200, easing = EaseOut),
             repeatMode = RepeatMode.Restart
         ),
         label = "pulseScale"
@@ -83,7 +85,7 @@ fun RecordScreen(
 
     val isRecording = uiState is RecordUiState.Recording
 
-    // ── Layout ─────────────────────────────────────────────────────────────────
+    // ── Layout ────────────────────────────────────────────────────────────────
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -96,8 +98,8 @@ fun RecordScreen(
 
         // App name
         Text(
-            text      = "SMARAN",
-            style     = SmaranType.labelSmall.copy(
+            text  = "SMARAN",
+            style = SmaranType.labelSmall.copy(
                 color    = SmaranColors.Purple,
                 fontSize = 13.sp
             )
@@ -110,7 +112,7 @@ fun RecordScreen(
             text  = when (uiState) {
                 is RecordUiState.Idle         -> "READY"
                 is RecordUiState.Recording    -> "● RECORDING"
-                is RecordUiState.Transcribing -> "TRANSCRIBING..."
+                is RecordUiState.Transcribing -> "PROCESSING..."
                 is RecordUiState.Error        -> "ERROR"
             },
             style = SmaranType.labelSmall.copy(
@@ -143,6 +145,22 @@ fun RecordScreen(
                 .height(72.dp)
         )
 
+        // Live partial text while speaking
+        if (isRecording && partialText.isNotBlank()) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text      = partialText,
+                style     = SmaranType.body.copy(
+                    color    = SmaranColors.TextSecondary,
+                    fontSize = 13.sp
+                ),
+                textAlign = TextAlign.Center,
+                modifier  = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+            )
+        }
+
         Spacer(Modifier.height(40.dp))
 
         // Record button
@@ -163,13 +181,12 @@ fun RecordScreen(
                     .clip(CircleShape)
                     .background(SmaranColors.SurfaceVariant)
                     .border(1.5.dp, SmaranColors.Border, CircleShape)
-                    .clickable(
-                        enabled = uiState !is RecordUiState.Transcribing
-                    ) {
+                    .clickable(enabled = uiState !is RecordUiState.Transcribing) {
                         when (uiState) {
                             is RecordUiState.Idle      -> permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             is RecordUiState.Recording -> vm.stopRecording()
-                            else -> Unit
+                            is RecordUiState.Error     -> vm.clearError()
+                            else                       -> Unit
                         }
                     },
                 contentAlignment = Alignment.Center
@@ -177,8 +194,8 @@ fun RecordScreen(
                 when (uiState) {
                     is RecordUiState.Transcribing -> {
                         CircularProgressIndicator(
-                            modifier  = Modifier.size(28.dp),
-                            color     = SmaranColors.Amber,
+                            modifier    = Modifier.size(28.dp),
+                            color       = SmaranColors.Amber,
                             strokeWidth = 2.dp
                         )
                     }
@@ -211,15 +228,20 @@ fun RecordScreen(
             text  = when (uiState) {
                 is RecordUiState.Idle         -> "TAP TO RECORD"
                 is RecordUiState.Recording    -> "TAP TO STOP"
-                is RecordUiState.Transcribing -> "TRANSCRIBING"
+                is RecordUiState.Transcribing -> "PROCESSING"
                 is RecordUiState.Error        -> "TAP TO RETRY"
             },
             style = SmaranType.labelMedium.copy(color = SmaranColors.TextMuted)
         )
 
+        Spacer(Modifier.height(12.dp))
+
+        // Network status banner — only shown when there is an issue
+        NetworkBanner(networkStatus)
+
         // Error message
         if (uiState is RecordUiState.Error) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text      = (uiState as RecordUiState.Error).message,
                 style     = SmaranType.body.copy(color = SmaranColors.Red, fontSize = 12.sp),
@@ -227,6 +249,25 @@ fun RecordScreen(
             )
         }
     }
+}
+
+// ─── Network Status Banner ────────────────────────────────────────────────────
+
+@Composable
+private fun NetworkBanner(status: NetworkStatus) {
+    val (message, color) = when (status) {
+        NetworkStatus.Unavailable -> "No internet — turn on Wi-Fi or mobile data" to SmaranColors.Red
+        NetworkStatus.LowSpeed    -> "Internet speed is too low" to SmaranColors.Red.copy(alpha = 0.85f)
+        NetworkStatus.Unstable    -> "Network is unstable — may take some time" to SmaranColors.Amber
+        NetworkStatus.Available   -> return
+    }
+
+    Text(
+        text      = message,
+        style     = SmaranType.labelSmall.copy(color = color, fontSize = 10.sp),
+        textAlign = TextAlign.Center,
+        modifier  = Modifier.fillMaxWidth()
+    )
 }
 
 // ─── Waveform Visualizer ──────────────────────────────────────────────────────
@@ -251,8 +292,8 @@ fun WaveformVisualizer(
         }
     }
 
-    val activeColor  = SmaranColors.Red.copy(alpha = 0.85f)
-    val idleColor    = SmaranColors.Purple.copy(alpha = 0.25f)
+    val activeColor = SmaranColors.Red.copy(alpha = 0.85f)
+    val idleColor   = SmaranColors.Purple.copy(alpha = 0.25f)
 
     Canvas(modifier = modifier) {
         val totalWidth  = size.width
