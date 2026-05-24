@@ -23,11 +23,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.smaran.ui.theme.SmaranColors
 import com.example.smaran.ui.theme.SmaranType
 
-// View model and state classes
-import android.os.Build
-import androidx.annotation.RequiresApi
-
-@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun ReviewScreen(
     transcribedText: String,
@@ -171,7 +166,7 @@ fun ReviewScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("✎ ", color = SmaranColors.TextDim, fontSize = 12.sp)
                     Text(
-                        text  = "TAP TO EDIT — FIX WHISPER ERRORS",
+                        text  = "TAP TO EDIT — FIX ANY TRANSCRIPTION ERRORS",
                         style = SmaranType.labelSmall.copy(
                             color    = SmaranColors.TextDim,
                             fontSize = 10.sp
@@ -237,8 +232,8 @@ fun ReviewScreen(
         val isSent    = uiState is ReviewUiState.Sent
 
         Button(
-            onClick  = { vm.sendMemory(editedText) },
-            enabled  = !isSending && !isSent,
+            onClick  = { vm.sendMemory(editedText, durationSeconds) },
+            enabled  = !isSending && !isSent && editedText.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),

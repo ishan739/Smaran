@@ -1,10 +1,13 @@
 package com.example.smaran
 
+import androidx.compose.animation.core.EaseIn
+import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -27,17 +30,14 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.smaran.ask.AskScreen
+import com.example.smaran.auth.AuthScreen
 import com.example.smaran.profile.ProfileScreen
 import com.example.smaran.record.RecordScreen
 import com.example.smaran.review.ReviewScreen
 import com.example.smaran.ui.theme.SmaranColors
 import com.example.smaran.ui.theme.SmaranType
 
-private data class NavTab(
-    val screen: Screen,
-    val icon: String,
-    val label: String,
-)
+private data class NavTab(val screen: Screen, val icon: String, val label: String)
 
 private val tabs = listOf(
     NavTab(Screen.Record,  "🎙", "RECORD"),
@@ -45,16 +45,25 @@ private val tabs = listOf(
     NavTab(Screen.Profile, "◉",  "PROFILE"),
 )
 
-// Routes that hide the bottom nav
-private val fullScreenRoutes = setOf(Screen.Review.route.substringBefore("/"))
+private val fullScreenRoutes = setOf(
+    Screen.Review.route.substringBefore("/"),
+    Screen.Auth.route,
+)
+
+// Shared transition specs
+private val fadeDuration  = 160
+private val slideMs       = 280
 
 @Composable
 fun SmaranNavGraph() {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: Screen.Record.route
-
     val showBottomNav = fullScreenRoutes.none { currentRoute.startsWith(it) }
+
+    val startDestination = remember {
+        if (TokenStorage.isLoggedIn) Screen.Record.route else Screen.Auth.route
+    }
 
     Scaffold(
         containerColor = SmaranColors.Background,
@@ -77,13 +86,28 @@ fun SmaranNavGraph() {
     ) { innerPadding ->
         NavHost(
             navController    = navController,
-            startDestination = Screen.Record.route,
+            startDestination = startDestination,
             modifier         = Modifier.padding(innerPadding),
-            enterTransition  = { slideInHorizontally(tween(220)) { it / 4 } },
-            exitTransition   = { slideOutHorizontally(tween(220)) { -it / 4 } },
-            popEnterTransition  = { slideInHorizontally(tween(220)) { -it / 4 } },
-            popExitTransition   = { slideOutHorizontally(tween(220)) { it / 4 } },
+            // No global transitions — each route defines its own
+            enterTransition  = { fadeIn(tween(fadeDuration)) },
+            exitTransition   = { fadeOut(tween(fadeDuration)) },
+            popEnterTransition  = { fadeIn(tween(fadeDuration)) },
+            popExitTransition   = { fadeOut(tween(fadeDuration)) },
         ) {
+
+            // ── Auth: shown on first launch until logged in ────────────────────
+
+            composable(Screen.Auth.route) {
+                AuthScreen(
+                    onAuthSuccess = {
+                        navController.navigate(Screen.Record.route) {
+                            popUpTo(Screen.Auth.route) { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            // ── Tab screens: simple cross-fade, no slide ──────────────────────
 
             composable(Screen.Record.route) {
                 RecordScreen(
@@ -93,20 +117,26 @@ fun SmaranNavGraph() {
                 )
             }
 
-            composable(Screen.Ask.route) {
-                AskScreen()
-            }
+            composable(Screen.Ask.route) { AskScreen() }
 
-            composable(Screen.Profile.route) {
-                ProfileScreen()
-            }
+            composable(Screen.Profile.route) { ProfileScreen() }
+
+            // ── Review: slides in from right, slides out to right on back ─────
 
             composable(
                 route     = Screen.Review.route,
                 arguments = listOf(
                     navArgument("transcribedText") { type = NavType.StringType },
                     navArgument("durationSeconds") { type = NavType.IntType }
-                )
+                ),
+                enterTransition    = {
+                    slideInHorizontally(tween(slideMs, easing = EaseOut)) { it }
+                },
+                exitTransition     = { fadeOut(tween(fadeDuration)) },
+                popEnterTransition = { fadeIn(tween(fadeDuration)) },
+                popExitTransition  = {
+                    slideOutHorizontally(tween(slideMs, easing = EaseIn)) { it }
+                },
             ) { backStackEntry ->
                 val rawText  = backStackEntry.arguments?.getString("transcribedText") ?: ""
                 val text     = java.net.URLDecoder.decode(rawText, "UTF-8")
@@ -126,27 +156,25 @@ fun SmaranNavGraph() {
 // ─── Bottom Nav ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun SmaranBottomNav(
-    currentRoute: String,
-    onTabSelected: (Screen) -> Unit,
-) {
+private fun SmaranBottomNav(currentRoute: String, onTabSelected: (Screen) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(SmaranColors.Surface)
-            .navigationBarsPadding()   // adapts to both gesture nav and 3-button nav
+            .navigationBarsPadding()
     ) {
         HorizontalDivider(color = SmaranColors.Border, thickness = 0.5.dp)
         Row(
-            modifier              = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
+            modifier              = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment     = Alignment.CenterVertically
         ) {
             tabs.forEach { tab ->
-                val selected = currentRoute == tab.screen.route
-                NavTabItem(tab = tab, selected = selected) { onTabSelected(tab.screen) }
+                NavTabItem(
+                    tab      = tab,
+                    selected = currentRoute == tab.screen.route,
+                    onClick  = { onTabSelected(tab.screen) }
+                )
             }
         }
     }
@@ -164,25 +192,20 @@ private fun NavTabItem(tab: NavTab, selected: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 24.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Active indicator dot above icon
         Box(
             modifier = Modifier
                 .size(3.dp)
                 .clip(CircleShape)
                 .background(if (selected) SmaranColors.Purple else Color.Transparent)
         )
-
         Spacer(Modifier.height(4.dp))
-
         Text(
             text      = tab.icon,
             fontSize  = if (selected) 20.sp else 18.sp,
             color     = if (selected) SmaranColors.Purple else SmaranColors.TextMuted,
             textAlign = TextAlign.Center
         )
-
         Spacer(Modifier.height(2.dp))
-
         Text(
             text  = tab.label,
             style = SmaranType.labelSmall.copy(

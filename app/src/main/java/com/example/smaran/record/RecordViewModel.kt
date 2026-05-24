@@ -54,6 +54,7 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
     private val networkMonitor = NetworkMonitor(application)
     val networkStatus: StateFlow<NetworkStatus> = networkMonitor.status
 
+    // SpeechRecognizer must be created and used on the main thread
     private var recognizer: SpeechRecognizer? = null
     private var recognizerIntent: Intent? = null
     private var startTimeMs = 0L
@@ -64,10 +65,10 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
     // True only when the user explicitly tapped Stop — not auto-silence
     @Volatile private var stoppingByUser = false
 
-    // Last partial result from the current session — used as fallback if final result fails
+    // Last partial from the current session — fallback if final result is blank
     private var lastKnownPartial = ""
 
-    // ── SpeechRecognizer must be created and used on the main thread ──────────
+    // ── Start ─────────────────────────────────────────────────────────────────
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun startRecording() {
@@ -109,6 +110,8 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         sr.startListening(recognizerIntent)
     }
 
+    // ── Stop ──────────────────────────────────────────────────────────────────
+
     fun stopRecording() {
         if (_uiState.value !is RecordUiState.Recording) return
         stoppingByUser = true
@@ -116,9 +119,7 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = RecordUiState.Transcribing
     }
 
-    fun clearError() {
-        _uiState.value = RecordUiState.Idle
-    }
+    // ── Recognition listener ──────────────────────────────────────────────────
 
     private val listener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {}
@@ -145,17 +146,19 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()?.trim() ?: ""
 
-            // If the final result is blank, fall back to the last partial we saw
+            // If final result is blank, fall back to the last partial we saw
             val effective = if (segment.isNotBlank()) segment else lastKnownPartial
             lastKnownPartial = ""
 
             if (stoppingByUser) {
+                // User pressed stop — append and finalise
                 if (effective.isNotBlank()) {
                     if (accumulatedText.isNotEmpty()) accumulatedText.append(" ")
                     accumulatedText.append(effective)
                 }
                 finalize()
             } else {
+                // Auto-silence — save segment and restart session
                 if (effective.isNotBlank()) {
                     if (accumulatedText.isNotEmpty()) accumulatedText.append(" ")
                     accumulatedText.append(effective)
@@ -166,13 +169,15 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         override fun onError(error: Int) {
+            // Auto-silence with no speech — just restart silently
             if (!stoppingByUser && isRestartableError(error)) {
                 lastKnownPartial = ""
                 recognizerIntent?.let { recognizer?.startListening(it) }
                 return
             }
-            // User pressed stop but final recognition failed —
-            // salvage whatever we have: accumulated sentences + any current partial
+
+            // User pressed stop but STT failed to return a final result —
+            // salvage accumulated sentences + any partial we still have
             if (stoppingByUser && isRestartableError(error)) {
                 if (lastKnownPartial.isNotBlank()) {
                     if (accumulatedText.isNotEmpty()) accumulatedText.append(" ")
@@ -182,6 +187,8 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
                 finalize()
                 return
             }
+
+            // Fatal error
             destroyRecognizer()
             _partialText.value = ""
             lastKnownPartial = ""
@@ -190,9 +197,11 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    // ── Finalize ──────────────────────────────────────────────────────────────
+
     private fun finalize() {
-        val finalText     = accumulatedText.toString().trim()
-        val durationSecs  = ((System.currentTimeMillis() - startTimeMs) / 1000).toInt()
+        val finalText    = accumulatedText.toString().trim()
+        val durationSecs = ((System.currentTimeMillis() - startTimeMs) / 1000).toInt()
 
         destroyRecognizer()
         _partialText.value = ""
@@ -209,10 +218,16 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private fun destroyRecognizer() {
         recognizer?.destroy()
         recognizer = null
         recognizerIntent = null
+    }
+
+    fun clearError() {
+        _uiState.value = RecordUiState.Idle
     }
 
     override fun onCleared() {
@@ -221,18 +236,18 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         networkMonitor.unregister()
     }
 
-    // These errors mean "nothing heard right now" — safe to restart silently
+    // Errors that mean "nothing heard right now" — safe to restart silently
     private fun isRestartableError(error: Int) =
         error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
         error == SpeechRecognizer.ERROR_NO_MATCH
 
     private fun sttErrorMessage(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-        SpeechRecognizer.ERROR_NETWORK        -> "Network error. Check your connection and try again."
-        SpeechRecognizer.ERROR_AUDIO          -> "Microphone error. Please try again."
-        SpeechRecognizer.ERROR_SERVER         -> "Server error. Please try again."
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected. Tap to try again."
-        SpeechRecognizer.ERROR_NO_MATCH       -> "Couldn't understand. Please speak more clearly."
+        SpeechRecognizer.ERROR_NETWORK         -> "Network error. Check your connection and try again."
+        SpeechRecognizer.ERROR_AUDIO           -> "Microphone error. Please try again."
+        SpeechRecognizer.ERROR_SERVER          -> "Server error. Please try again."
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT  -> "No speech detected. Tap to try again."
+        SpeechRecognizer.ERROR_NO_MATCH        -> "Couldn't understand. Please speak more clearly."
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy. Please try again."
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required."
         else -> "Something went wrong. Please try again."

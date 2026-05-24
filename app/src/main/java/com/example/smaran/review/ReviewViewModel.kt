@@ -1,7 +1,5 @@
 package com.example.smaran.review
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.smaran.api.MemoryRepository
@@ -14,7 +12,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.time.Instant
 
 // ─── UI State ─────────────────────────────────────────────────────────────────
 
@@ -43,8 +40,7 @@ class ReviewViewModel : ViewModel() {
     private val _events = MutableSharedFlow<ReviewEvent>()
     val events: SharedFlow<ReviewEvent> = _events.asSharedFlow()
 
-    @RequiresApi(Build.VERSION_CODES.O)
-    fun sendMemory(text: String ){
+    fun sendMemory(text: String, durationSeconds: Int) {
         if (_uiState.value is ReviewUiState.Sending) return
         if (text.isBlank()) {
             _uiState.value = ReviewUiState.Error("Text is empty — nothing to send")
@@ -54,7 +50,7 @@ class ReviewViewModel : ViewModel() {
         _uiState.value = ReviewUiState.Sending
 
         viewModelScope.launch {
-            when (val result = repository.saveMemory(text)) {
+            when (val result = repository.saveMemory(text, durationSeconds)) {
                 is Result.Success -> {
                     _uiState.value = ReviewUiState.Sent
                     delay(1200)

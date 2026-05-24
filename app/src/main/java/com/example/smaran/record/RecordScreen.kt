@@ -9,7 +9,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -18,8 +21,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,7 +43,6 @@ fun RecordScreen(
     val partialText   by vm.partialText.collectAsState()
     val networkStatus by vm.networkStatus.collectAsState()
 
-    // ── Collect one-time nav events ───────────────────────────────────────────
     LaunchedEffect(Unit) {
         vm.events.collect { event ->
             when (event) {
@@ -50,42 +52,30 @@ fun RecordScreen(
         }
     }
 
-    // ── Mic permission ────────────────────────────────────────────────────────
     @SuppressLint("MissingPermission")
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> if (granted) vm.startRecording() }
 
-    // ── Timer ─────────────────────────────────────────────────────────────────
     var seconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(uiState) {
         if (uiState is RecordUiState.Recording) {
             seconds = 0
-            while (true) {
-                delay(1000)
-                seconds++
-            }
+            while (true) { delay(1000); seconds++ }
         }
     }
 
-    val timerText = remember(seconds) {
-        "%02d:%02d".format(seconds / 60, seconds % 60)
-    }
-
-    // ── Pulse animation ───────────────────────────────────────────────────────
-    val pulseScale by rememberInfiniteTransition(label = "pulse").animateFloat(
-        initialValue = 1f,
-        targetValue  = 1.5f,
-        animationSpec = infiniteRepeatable(
-            animation  = tween(1200, easing = EaseOut),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulseScale"
-    )
-
+    val timerText   = remember(seconds) { "%02d:%02d".format(seconds / 60, seconds % 60) }
     val isRecording = uiState is RecordUiState.Recording
 
-    // ── Layout ────────────────────────────────────────────────────────────────
+    val pulse = rememberInfiniteTransition(label = "pulse")
+    val p1 by pulse.animateFloat(0f, 1f,
+        infiniteRepeatable(tween(1800, easing = EaseOut), RepeatMode.Restart), "p1")
+    val p2 by pulse.animateFloat(0f, 1f,
+        infiniteRepeatable(tween(1800, delayMillis = 600, easing = EaseOut), RepeatMode.Restart), "p2")
+    val p3 by pulse.animateFloat(0f, 1f,
+        infiniteRepeatable(tween(1800, delayMillis = 1200, easing = EaseOut), RepeatMode.Restart), "p3")
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -94,25 +84,21 @@ fun RecordScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
-        Spacer(Modifier.height(56.dp))
+        Spacer(Modifier.height(52.dp))
 
-        // App name
         Text(
             text  = "SMARAN",
-            style = SmaranType.labelSmall.copy(
-                color    = SmaranColors.Purple,
-                fontSize = 13.sp
-            )
+            style = SmaranType.labelSmall.copy(color = SmaranColors.Purple, fontSize = 13.sp)
         )
 
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.weight(0.8f))
 
         // State label
         Text(
             text  = when (uiState) {
                 is RecordUiState.Idle         -> "READY"
-                is RecordUiState.Recording    -> "● RECORDING"
-                is RecordUiState.Transcribing -> "PROCESSING..."
+                is RecordUiState.Recording    -> "● REC"
+                is RecordUiState.Transcribing -> "PROCESSING"
                 is RecordUiState.Error        -> "ERROR"
             },
             style = SmaranType.labelSmall.copy(
@@ -125,54 +111,54 @@ fun RecordScreen(
             )
         )
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
 
         // Timer
         Text(
             text  = if (isRecording) timerText else "00:00",
             style = SmaranType.timerLarge.copy(
-                color = if (isRecording) SmaranColors.TextPrimary else SmaranColors.TextMuted
+                color = if (isRecording) SmaranColors.TextPrimary
+                        else SmaranColors.TextMuted.copy(alpha = 0.35f)
             )
         )
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(28.dp))
 
-        // Waveform
-        WaveformVisualizer(
-            isActive = isRecording,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(72.dp)
-        )
+        // ── Pulse rings + record button ───────────────────────────────────────
+        Box(
+            modifier         = Modifier.size(240.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            val purple = SmaranColors.Purple
 
-        // Live partial text while speaking
-        if (isRecording && partialText.isNotBlank()) {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text      = partialText,
-                style     = SmaranType.body.copy(
-                    color    = SmaranColors.TextSecondary,
-                    fontSize = 13.sp
-                ),
-                textAlign = TextAlign.Center,
-                modifier  = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-            )
-        }
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val center      = Offset(size.width / 2f, size.height / 2f)
+                val buttonRadPx = 44.dp.toPx()
+                val maxRadPx    = 120.dp.toPx()
 
-        Spacer(Modifier.height(40.dp))
+                // Static decorative rings (always visible, faint)
+                listOf(0.55f, 0.75f, 1.0f).forEach { fraction ->
+                    drawCircle(
+                        color  = purple,
+                        radius = maxRadPx * fraction,
+                        center = center,
+                        alpha  = 0.07f,
+                        style  = Stroke(width = 1.dp.toPx())
+                    )
+                }
 
-        // Record button
-        Box(contentAlignment = Alignment.Center) {
-            if (isRecording) {
-                Box(
-                    modifier = Modifier
-                        .size(120.dp)
-                        .scale(pulseScale)
-                        .clip(CircleShape)
-                        .border(1.dp, SmaranColors.Purple.copy(alpha = 0.3f), CircleShape)
-                )
+                // Animated pulse rings while recording
+                if (isRecording) {
+                    listOf(p1, p2, p3).forEach { t ->
+                        drawCircle(
+                            color  = purple,
+                            radius = buttonRadPx + (maxRadPx - buttonRadPx) * t,
+                            center = center,
+                            alpha  = (1f - t) * 0.55f,
+                            style  = Stroke(width = 1.5.dp.toPx())
+                        )
+                    }
+                }
             }
 
             Box(
@@ -180,8 +166,17 @@ fun RecordScreen(
                     .size(88.dp)
                     .clip(CircleShape)
                     .background(SmaranColors.SurfaceVariant)
-                    .border(1.5.dp, SmaranColors.Border, CircleShape)
-                    .clickable(enabled = uiState !is RecordUiState.Transcribing) {
+                    .border(
+                        width = 1.5.dp,
+                        color = if (isRecording) SmaranColors.Purple.copy(alpha = 0.6f)
+                                else SmaranColors.Border,
+                        shape = CircleShape
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication        = null,
+                        enabled           = uiState !is RecordUiState.Transcribing
+                    ) {
                         when (uiState) {
                             is RecordUiState.Idle      -> permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             is RecordUiState.Recording -> vm.stopRecording()
@@ -192,37 +187,35 @@ fun RecordScreen(
                 contentAlignment = Alignment.Center
             ) {
                 when (uiState) {
-                    is RecordUiState.Transcribing -> {
-                        CircularProgressIndicator(
-                            modifier    = Modifier.size(28.dp),
-                            color       = SmaranColors.Amber,
-                            strokeWidth = 2.dp
-                        )
-                    }
-                    is RecordUiState.Recording -> {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(SmaranColors.Red)
-                        )
-                    }
-                    else -> {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(SmaranColors.Purple),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("🎙", fontSize = 20.sp)
-                        }
+                    is RecordUiState.Transcribing -> CircularProgressIndicator(
+                        modifier    = Modifier.size(28.dp),
+                        color       = SmaranColors.Amber,
+                        strokeWidth = 2.dp
+                    )
+                    is RecordUiState.Recording -> Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(SmaranColors.Red)
+                    )
+                    else -> Box(
+                        modifier         = Modifier.size(48.dp).clip(CircleShape).background(SmaranColors.Purple),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🎙", fontSize = 20.sp)
                     }
                 }
             }
         }
 
         Spacer(Modifier.height(16.dp))
+
+        WaveformVisualizer(
+            isActive = isRecording,
+            modifier = Modifier.fillMaxWidth().height(56.dp)
+        )
+
+        Spacer(Modifier.height(12.dp))
 
         Text(
             text  = when (uiState) {
@@ -234,12 +227,39 @@ fun RecordScreen(
             style = SmaranType.labelMedium.copy(color = SmaranColors.TextMuted)
         )
 
-        Spacer(Modifier.height(12.dp))
+        // Live partial transcription — scrollable box, always shows latest text
+        if (isRecording && partialText.isNotBlank()) {
+            Spacer(Modifier.height(16.dp))
 
-        // Network status banner — only shown when there is an issue
+            val scrollState = rememberScrollState()
+            LaunchedEffect(partialText) {
+                scrollState.animateScrollTo(scrollState.maxValue)
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 110.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SmaranColors.Surface.copy(alpha = 0.6f))
+                    .border(1.dp, SmaranColors.Border.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text     = partialText,
+                    style    = SmaranType.body.copy(
+                        color    = SmaranColors.TextSecondary,
+                        fontSize = 13.sp
+                    ),
+                    modifier = Modifier.verticalScroll(scrollState)
+                )
+            }
+        }
+
+        Spacer(Modifier.weight(1f))
+
         NetworkBanner(networkStatus)
 
-        // Error message
         if (uiState is RecordUiState.Error) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -248,6 +268,8 @@ fun RecordScreen(
                 textAlign = TextAlign.Center
             )
         }
+
+        Spacer(Modifier.height(32.dp))
     }
 }
 
@@ -261,7 +283,6 @@ private fun NetworkBanner(status: NetworkStatus) {
         NetworkStatus.Unstable    -> "Network is unstable — may take some time" to SmaranColors.Amber
         NetworkStatus.Available   -> return
     }
-
     Text(
         text      = message,
         style     = SmaranType.labelSmall.copy(color = color, fontSize = 10.sp),
@@ -273,10 +294,7 @@ private fun NetworkBanner(status: NetworkStatus) {
 // ─── Waveform Visualizer ──────────────────────────────────────────────────────
 
 @Composable
-fun WaveformVisualizer(
-    isActive: Boolean,
-    modifier: Modifier = Modifier
-) {
+fun WaveformVisualizer(isActive: Boolean, modifier: Modifier = Modifier) {
     val barHeights = remember { mutableStateListOf(*Array(48) { 4f }) }
 
     LaunchedEffect(isActive) {
@@ -296,12 +314,11 @@ fun WaveformVisualizer(
     val idleColor   = SmaranColors.Purple.copy(alpha = 0.25f)
 
     Canvas(modifier = modifier) {
-        val totalWidth  = size.width
-        val totalHeight = size.height
-        val barCount    = barHeights.size
-        val barWidth    = 3.dp.toPx()
-        val gap         = (totalWidth - barCount * barWidth) / (barCount - 1)
-        val centerY     = totalHeight / 2f
+        val totalWidth = size.width
+        val barCount   = barHeights.size
+        val barWidth   = 3.dp.toPx()
+        val gap        = (totalWidth - barCount * barWidth) / (barCount - 1)
+        val centerY    = size.height / 2f
 
         barHeights.forEachIndexed { i, h ->
             val x = i * (barWidth + gap)
