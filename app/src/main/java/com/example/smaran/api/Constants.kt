@@ -2,6 +2,7 @@ package com.example.smaran.api
 
 object Constants {
     const val BASE_URL = "https://smaranbackend-production.up.railway.app/"
+//const val BASE_URL = "https://countable-tactful-legible.ngrok-free.dev/"
 
     const val ENDPOINT_SIGNUP = "api/auth/signup"
     const val ENDPOINT_LOGIN  = "api/auth/login"
