@@ -35,6 +35,7 @@ fun AskScreen(vm: AskViewModel = viewModel()) {
     val inputText   by vm.inputText.collectAsState()
     val isListening by vm.isListening.collectAsState()
     val playingId   by vm.playingId.collectAsState()
+    val loadingId   by vm.loadingId.collectAsState()
 
     Column(
         modifier = Modifier
@@ -80,7 +81,8 @@ fun AskScreen(vm: AskViewModel = viewModel()) {
                 AnswerCard(
                     entry     = entry,
                     isPlaying = playingId == entry.id,
-                    onPlay    = { vm.speakAnswer(entry.answer, entry.id, entry.mood) },
+                    isLoading = loadingId == entry.id,
+                    onPlay    = { vm.speakAnswer(entry.answer, entry.id, entry.mood, entry.voiceDescription, entry.speaker, entry.pitchShift) },
                     onStop    = { vm.stopSpeaking() }
                 )
                 Spacer(Modifier.height(8.dp))
@@ -191,6 +193,7 @@ private fun QuestionBubble(question: String, timestamp: String) {
 private fun AnswerCard(
     entry: QaEntry,
     isPlaying: Boolean,
+    isLoading: Boolean,
     onPlay: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -223,7 +226,7 @@ private fun AnswerCard(
                         style = SmaranType.labelSmall.copy(color = SmaranColors.TextMuted, fontSize = 9.sp)
                     )
                     Spacer(Modifier.weight(1f))
-                    PlayButton(isPlaying = isPlaying, onPlay = onPlay, onStop = onStop)
+                    PlayButton(isPlaying = isPlaying, isLoading = isLoading, onPlay = onPlay, onStop = onStop)
                 }
             }
         }
@@ -233,32 +236,72 @@ private fun AnswerCard(
 // ─── Play Button ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PlayButton(isPlaying: Boolean, onPlay: () -> Unit, onStop: () -> Unit) {
-    val pulseAnim = rememberInfiniteTransition(label = "ttsPlay")
-    val pulse by pulseAnim.animateFloat(
+private fun PlayButton(
+    isPlaying: Boolean,
+    isLoading: Boolean,
+    onPlay: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "ttsBtn")
+
+    val pulse by infiniteTransition.animateFloat(
         initialValue  = 1f,
         targetValue   = 1.25f,
         animationSpec = infiniteRepeatable(tween(900, easing = EaseInOut), RepeatMode.Reverse),
         label         = "ttsPulse"
     )
 
+    val dotAlphas = (0..2).map { i ->
+        infiniteTransition.animateFloat(
+            initialValue  = 0.25f,
+            targetValue   = 1f,
+            animationSpec = infiniteRepeatable(
+                animation  = tween(450, delayMillis = i * 140, easing = EaseInOut),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "loadDot$i"
+        )
+    }
+
     Box(
         modifier = Modifier
             .size(32.dp)
             .scale(if (isPlaying) pulse else 1f)
             .clip(CircleShape)
-            .background(if (isPlaying) SmaranColors.Amber else SmaranColors.Purple)
+            .background(
+                when {
+                    isPlaying -> SmaranColors.Amber
+                    isLoading -> SmaranColors.PurpleDim
+                    else      -> SmaranColors.Purple
+                }
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication        = null
-            ) { if (isPlaying) onStop() else onPlay() },
+            ) { if (isPlaying || isLoading) onStop() else onPlay() },
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text     = if (isPlaying) "■" else "▶",
-            fontSize = 11.sp,
-            color    = Color.White
-        )
+        if (isLoading) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                dotAlphas.forEach { alpha ->
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = alpha.value))
+                    )
+                }
+            }
+        } else {
+            Text(
+                text     = if (isPlaying) "■" else "▶",
+                fontSize = 11.sp,
+                color    = Color.White
+            )
+        }
     }
 }
 
