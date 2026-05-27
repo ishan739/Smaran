@@ -55,7 +55,13 @@ data class SaveMemoryResponse(
 // ─── Ask ──────────────────────────────────────────────────────────────────────
 
 data class AskRequest(val query: String)
-data class AskResponse(val answer: String, val mood: String?)
+data class AskResponse(
+    val answer: String,
+    val mood: String?,
+    val voiceDescription: String?,
+    val speaker: String?,
+    val pitchShift: Int?
+)
 
 // ─── Interface ────────────────────────────────────────────────────────────────
 
